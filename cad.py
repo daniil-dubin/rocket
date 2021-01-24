@@ -4,6 +4,10 @@ import MeshPart
 import FreeCAD as App
 import FreeCADGui as Gui
 
+# typical Rao throat parameters
+converging_radius_koef = 1.5
+diverging_radius_koef = 0.382
+
 
 def sqr(x):
     return x * x
@@ -39,10 +43,6 @@ def build_nozzle(
         delta_phi=math.radians(1)
 ):
     exit_radius = math.sqrt(throat_radius * throat_radius * nozzle_expansion_ratio)
-
-    # typical Rao throat parameters
-    converging_radius_koef = 1.5
-    diverging_radius_koef = 0.382
 
     inflection_angle = math.radians(inflection_angle_deg)
     exit_angle = math.radians(exit_angle_deg)
@@ -106,16 +106,73 @@ def build_nozzle(
     nozzle_contour = Part.Wire(edges)
     nozzle_face = Part.Face(nozzle_contour)
 
-    return nozzle_face.revolve(App.Vector(1, 0, 0), App.Vector(360, 0, 0))
+    return nozzle_face.revolve(App.Vector(1, 0, 0), App.Vector(360, 0, 0)), px + converging_radius, converging_radius
 
 
-nozzle = build_nozzle()
+def chamber(port_radius,
+            max_port_radius,
+            grain_length,
+            chamber_length=10):
+    edges = []
+    prev = []
+
+    def move(x, y):
+        if len(prev) > 0:
+            edges.append(Part.makeLine((prev[0], prev[1], 0), (x, y, 0)))
+            prev[0] = x
+            prev[1] = y
+        else:
+            prev.append(x)
+            prev.append(y)
+
+    move(0, 0)
+    move(0, max_port_radius)
+    move(-chamber_length, max_port_radius)
+    move(-chamber_length, port_radius)
+    move(-chamber_length - grain_length, port_radius)
+    move(-chamber_length - grain_length, 0)
+    move(0, 0)
+
+    chamber_wire = Part.Wire(edges)
+    chamber_face = Part.Face(chamber_wire)
+
+    return chamber_face.revolve(App.Vector(1, 0, 0), App.Vector(360, 0, 0))
+
+
+def cylinder(radius, length):
+    wire = Part.Wire([
+        Part.makeLine((0, 0, 0), (0, radius, 0)),
+        Part.makeLine((0, radius, 0), (-length, radius, 0)),
+        Part.makeLine((-length, radius, 0), (-length, 0, 0)),
+        Part.makeLine((-length, 0, 0), (0, 0, 0))
+    ])
+    face = Part.Face(wire)
+    return face.revolve(App.Vector(1, 0, 0), App.Vector(360, 0, 0))
+
+
+
+throat_radius = 10.87 / 2
+
+nozzle, nozzle_length, converging_length = build_nozzle(throat_radius=throat_radius)
+
+chamber = chamber(21.6 / 2, 50 / 2, 230, 10)
+chamber.translate(App.Vector(-throat_radius * converging_radius_koef, 0, 0))
+
+plug = chamber.fuse(nozzle)
+
+outer_shell = cylinder(55 / 2, nozzle_length + 230 + 10)
+outer_shell.translate(App.Vector(nozzle_length - converging_length, 0, 0))
+
+cast = outer_shell.cut(plug)
+
+# Part.show(cast)
+# Part.show(outer_shell)
 
 App.newDocument("Nozzle")
 App.setActiveDocument("Nozzle")
 
 nozzle_mesh = App.ActiveDocument.addObject("Mesh::Feature", "NozzleMesh")
-nozzle_mesh.Mesh = MeshPart.meshFromShape(Shape=nozzle, MaxLength=1)
+nozzle_mesh.Mesh = MeshPart.meshFromShape(Shape=cast, MaxLength=1)
 # nozzle_mesh.ViewObject.DisplayMode = "Flat Lines"
 
 # Part.show(nozzle_mesh)
