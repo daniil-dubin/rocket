@@ -34,7 +34,8 @@ def build_nozzle(
 ):
     exit_radius = math.sqrt(throat_radius * throat_radius * nozzle_expansion_ratio)
 
-    # converging_radius_koef = 1.5
+    # typical Rao throat parameters
+    converging_radius_koef = 1.5
     diverging_radius_koef = 0.382
 
     inflection_angle = math.radians(inflection_angle_deg)
@@ -46,16 +47,16 @@ def build_nozzle(
 
     # converging part
 
-    y = outside_radius
-    converging_radius = outside_radius - throat_radius
-
-    px = -converging_radius
-    # py = outside_radius
-    py = 0
+    converging_radius = throat_radius * converging_radius_koef
+    circle_center = 0, throat_radius + converging_radius
 
     edges = []
 
     x = 0
+    y = circle_center[1]
+
+    px = -converging_radius
+    py = 0
 
     while True:
         y = y - delta
@@ -63,7 +64,7 @@ def build_nozzle(
         if y < throat_radius:
             break
         else:
-            x = - math.sqrt(sqr(converging_radius) - sqr(y - outside_radius))
+            x = - math.sqrt(sqr(converging_radius) - sqr(y - circle_center[1]))
 
         edges.append(Part.makeLine((px, py, 0), (x, y, 0)))
         px = x
