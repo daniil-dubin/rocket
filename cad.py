@@ -209,7 +209,7 @@ def build_grain_outer_shell(port_radius,
 throat_radius = 10.87 / 2
 
 port_radius = 21.6 / 2
-max_port_radius = 50 / 2
+max_port_radius = 40 / 2
 grain_length = 230
 chamber_length = 10
 
