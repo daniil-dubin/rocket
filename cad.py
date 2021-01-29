@@ -48,7 +48,7 @@ class Nozzle:
 
     def build(self,
               delta=0.25,
-              delta_phi=math.radians(1)):
+              delta_phi=math.radians(2)):
         exit_radius = math.sqrt(throat_radius * throat_radius * self.nozzle_expansion_ratio)
 
         inflection_angle = math.radians(self.inflection_angle_deg)
@@ -101,11 +101,12 @@ class Nozzle:
 
         while y <= exit_radius:
             y = py + delta
-            x = abc[0] * sqr(y) + abc[1] * y + abc[2]
+            ny = min(y, exit_radius)
+            x = abc[0] * sqr(ny) + abc[1] * ny + abc[2]
 
-            edges.append(Part.makeLine((px, py, 0), (x, y, 0)))
+            edges.append(Part.makeLine((px, py, 0), (x, ny, 0)))
             px = x
-            py = y
+            py = ny
 
         # back to the axis
         edges.append(Part.makeLine((px, py, 0), (px, 0, 0)))
@@ -121,10 +122,15 @@ class Nozzle:
 
 
 class Sketch:
-    def __init__(self, px, py):
+    def __init__(self, x0, y0):
         self.edges = []
-        self.px = px
-        self.py = py
+        self.x0 = x0
+        self.y0 = y0
+        self.px = x0
+        self.py = y0
+
+    def close(self):
+        self.mv(self.x0, self.y0)
 
     def mv_x(self, x):
         self.mv(x, self.py)
@@ -179,7 +185,7 @@ def chamber(port_radius,
     sketch.mv_y(port_radius)
     sketch.mv_x(-chamber_length - grain_length)
     sketch.mv_y(0)
-    sketch.mv(0, 0)
+    sketch.close()
 
     chamber_face = Part.Face(sketch.to_face())
 
@@ -189,16 +195,17 @@ def chamber(port_radius,
 def build_nozzle_outer_shell(max_port_radius,
                              chamber_length,
                              nozzle,
-                             wall_thickness=5,
-                             socket_depth=10):
-    sketch = Sketch(nozzle.diverging_length, 0)
-
-    sketch.mv_y(nozzle.exit_radius + wall_thickness)
+                             wall_thickness,
+                             socket_depth,
+                             cone_height):
+    sketch = Sketch(nozzle.diverging_length + cone_height, 0)
+    sketch.mv_y(nozzle.exit_radius * 0.7 + wall_thickness)
+    sketch.mv(nozzle.diverging_length, nozzle.exit_radius + wall_thickness)
     sketch.mv_x(0)
     sketch.mv(-nozzle.converging_length, max_port_radius + wall_thickness * 2)
     sketch.mv_dx(-chamber_length - socket_depth)
     sketch.mv_y(0)
-    sketch.mv_x(nozzle.diverging_length)
+    sketch.close()
 
     face = sketch.to_face()
     return face.revolve(App.Vector(1, 0, 0), App.Vector(360, 0, 0))
@@ -219,26 +226,53 @@ def build_grain_outer_shell(port_radius,
     sketch.mv_y(port_radius + wall_thickness)
     sketch.mv_x(-nozzle.converging_length - chamber_length - grain_length)
     sketch.mv_y(0)
-    sketch.mv_x(-nozzle.converging_length - (chamber_length - chamber_rounding_radius))
+    sketch.close()
 
     face = sketch.to_face()
     return face.revolve(App.Vector(1, 0, 0), App.Vector(360, 0, 0))
 
 
-# configuration
-throat_radius = 10.87 / 2
+def build_single_shell(max_port_radius,
+                       chamber_length,
+                       nozzle,
+                       wall_thickness,
+                       socket_depth,
+                       cone_height):
+    sketch = Sketch(nozzle.diverging_length + cone_height, 0)
+    sketch.mv_y(max_port_radius + wall_thickness)
+    sketch.mv(nozzle.diverging_length, nozzle.exit_radius + wall_thickness)
+    sketch.mv_x(0)
+    sketch.mv(-nozzle.converging_length, max_port_radius + wall_thickness * 2)
+    sketch.mv_dx(-chamber_length - socket_depth)
+    sketch.mv_y(0)
+    sketch.close()
 
+    face = sketch.to_face()
+    return face.revolve(App.Vector(1, 0, 0), App.Vector(360, 0, 0))
+
+
+# CONFIGURATION
+
+# nozzle
+throat_radius = 10.87 / 2
+inflection_angle_deg = 30.0
+exit_angle_deg = 12
+nozzle_expansion_ratio = 3.7
+
+# chamber
 port_radius = 21.6 / 2
 max_port_radius = 40 / 2
 grain_length = 230
 chamber_length = 10
 chamber_rounding_radius = 3
 
+# cast
 wall_thickness = 3
 socket_depth = 15
+cone_height = 10
 
 # building
-nozzle = Nozzle(throat_radius=throat_radius)
+nozzle = Nozzle(throat_radius, inflection_angle_deg, exit_angle_deg, nozzle_expansion_ratio)
 nozzle.build()
 
 chamber = chamber(port_radius,
@@ -249,13 +283,17 @@ chamber = chamber(port_radius,
 
 chamber.translate(App.Vector(-nozzle.converging_length, 0, 0))
 
-plug = chamber.fuse(nozzle.solid)
+cone = Part.makeCone(nozzle.exit_radius, nozzle.exit_radius * 0.7, cone_height,
+                     App.Vector(nozzle.diverging_length, 0, 0), App.Vector(1, 0, 0))
+
+plug = chamber.fuse(nozzle.solid).fuse(cone)
 
 nozzle_outer_shell = build_nozzle_outer_shell(max_port_radius=max_port_radius,
                                               chamber_length=chamber_length,
                                               nozzle=nozzle,
                                               wall_thickness=wall_thickness,
-                                              socket_depth=socket_depth)
+                                              socket_depth=socket_depth,
+                                              cone_height=cone_height)
 
 grain_outer_shell = build_grain_outer_shell(port_radius,
                                             max_port_radius,
@@ -266,7 +304,7 @@ grain_outer_shell = build_grain_outer_shell(port_radius,
                                             socket_depth,
                                             chamber_rounding_radius)
 
-Part.show(plug)
+# Part.show(plug)
 # Part.show(nozzle_outer_shell)
 # Part.show(grain_outer_shell)
 
@@ -279,18 +317,18 @@ box.translate(App.Vector(-500, -500, -1000))
 cast_grain_half = cast_grain.cut(box)
 cast_nozzle_half = cast_nozzle.cut(box)
 
-Part.show(cast_grain_half)
-Part.show(cast_nozzle_half)
-#
-# App.newDocument("Nozzle")
-# App.setActiveDocument("Nozzle")
-#
-# nozzle_cast_mesh = App.ActiveDocument.addObject("Mesh::Feature", "NozzleCastMesh")
-# nozzle_cast_mesh.Mesh = MeshPart.meshFromShape(Shape=cast_nozzle_half, MaxLength=1)
-#
-# grain_cast_mesh = App.ActiveDocument.addObject("Mesh::Feature", "GrainCastMesh")
-# grain_cast_mesh.Mesh = MeshPart.meshFromShape(Shape=cast_grain_half, MaxLength=1)
-#
-# App.ActiveDocument.recompute()
-# Gui.ActiveDocument.ActiveView.viewAxometric()
-# Gui.SendMsgToActiveView("ViewFit")
+# Part.show(cast_grain_half)
+# Part.show(cast_nozzle_half)
+
+App.newDocument("NozzleCast")
+App.setActiveDocument("NozzleCast")
+
+nozzle_cast_mesh = App.ActiveDocument.addObject("Mesh::Feature", "NozzleCastMesh")
+nozzle_cast_mesh.Mesh = MeshPart.meshFromShape(Shape=cast_nozzle_half, MaxLength=1)
+
+grain_cast_mesh = App.ActiveDocument.addObject("Mesh::Feature", "GrainCastMesh")
+grain_cast_mesh.Mesh = MeshPart.meshFromShape(Shape=cast_grain_half, MaxLength=1)
+
+App.ActiveDocument.recompute()
+Gui.ActiveDocument.ActiveView.viewAxometric()
+Gui.SendMsgToActiveView("ViewFit")
